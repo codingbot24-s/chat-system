@@ -8,4 +8,5 @@ import (
 
 func StartRouter (r* mux.Router) {
 	r.HandleFunc("/",handlers.Health).Methods("GET");
+	r.HandleFunc("/ws",handlers.HandleWebSocket)
 }
