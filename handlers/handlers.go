@@ -42,7 +42,7 @@ func (h *handler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		log.Printf("error upgarding con %w", err)
 		return
 	}
-	go helpers.HandleConnection(conn)
+	go helpers.HandleConnection(uint(userID),conn,h.db)
 }
 
 // we need better error handling

@@ -8,21 +8,24 @@ import (
 	"sync"
 	"time"
 
+	"github.com/codingbot24.s/chat-system/db"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
-type Clients []map[string]*websocket.Conn
+type Clients []map[uint]*websocket.Conn
 
 var (
 	Connection Clients
 	mu         sync.Mutex
 )
 
-func addConnection(username string, conn *websocket.Conn) {
+func addConnection(userID uint, conn *websocket.Conn) {
+
 	mu.Lock()
-	Connection = append(Connection, map[string]*websocket.Conn{username: conn})
+	Connection = append(Connection, map[uint]*websocket.Conn{userID: conn})
 	defer mu.Unlock()
 }
 
@@ -37,11 +40,46 @@ func writeAll(ty int, msg []byte) {
 	}
 }
 
-func HandleConnection(conn *websocket.Conn) {
+func CreateMessage(userID uint, b []byte) *db.Message {
+	m := &db.Message{
+		Content: b,
+		UserId:  userID,
+	}
 
-	// NOTE: (saad) we need to get the username for connection from the routes
-	addConnection("test", conn)
+	return m
+}
+
+// FIND USER IN DB
+func findUser(userId uint, DBh *gorm.DB) (*db.User, error) {
+	var user db.User
+	if result := DBh.First(&user, userId); result.Error != nil {
+		return nil, result.Error
+	}
+
+	return &user, nil
+}
+
+// STORE Message In DB
+func StoreMessage(b []byte, DBh *gorm.DB, userID uint) error {
+	msg := CreateMessage(userID, b)
+	// find the user with this id
+	user, err := findUser(userID, DBh)
+	if err != nil {
+		return err
+	}
+
+	// create a message in this user
+	if err := DBh.Model(user).Association("Messages").Append(&db.Message{Content: msg.Content, UserId: user.ID}); err != nil {
+		return err 
+	}	
+	return nil
+}
+
+func HandleConnection(userID uint, conn *websocket.Conn, db *gorm.DB) {
+
+	addConnection(userID, conn)
 	for {
+		// we can save this message in db in byte
 		mty, b, err := conn.ReadMessage()
 		if err != nil {
 			log.Printf("error reading from connection %w", err)
@@ -49,10 +87,10 @@ func HandleConnection(conn *websocket.Conn) {
 		}
 		fmt.Printf("recv  message %s\n", string(b))
 		writeAll(mty, b)
-		// if err := conn.WriteMessage(msgt,b); err != nil {
-		// 	log.Printf("error reading from connection %w", err)
-		// 	break
-		// }
+
+		if err := StoreMessage(b, db, userID); err != nil {
+			log.Printf("error storing message: %w", err)
+		}
 	}
 
 }
@@ -91,6 +129,13 @@ func CreateToken(id uint) (string, error) {
 	return tokenString, nil
 }
 
+
+
+/*
+	AUTH MIDDLEWARE
+*/
+
+
 func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tokenString := r.Header.Get("Authorization")
@@ -114,17 +159,16 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		id,ok := claims["id"]
+		id, ok := claims["id"]
 		if !ok {
 			http.Error(w, "invalid token", http.StatusUnauthorized)
 			return
 		}
 
-		ctx := context.WithValue(r.Context(),"id",id)
+		ctx := context.WithValue(r.Context(), "id", id)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
- 
 
 func GetUserId(ctx context.Context) float64 {
 	userId := ctx.Value("id").(float64)
