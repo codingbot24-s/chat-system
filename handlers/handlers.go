@@ -31,7 +31,12 @@ func (h *handler) Health(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
-
+	/*
+		do we need to check if user with this id exist in
+		the db or not
+	*/
+	userID := helpers.GetUserId(r.Context())
+	fmt.Printf("user id %f\n", userID)
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("error upgarding con %w", err)
@@ -42,18 +47,18 @@ func (h *handler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 // we need better error handling
 
-func (h *handler) SignUp(w http.ResponseWriter, r *http.Request)  {
+func (h *handler) SignUp(w http.ResponseWriter, r *http.Request) {
 	var body rqrstype.SignUpBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
-		return 
+		return
 	}
 
 	var usr db.User
 	if result := h.db.Where("name = ?", body.Name).First(&usr); result.
-	Error != gorm.ErrRecordNotFound {
+		Error != gorm.ErrRecordNotFound {
 		http.Error(w, "user already exists", http.StatusBadRequest)
-		return 
+		return
 	}
 
 	usr.Name = body.Name
@@ -67,36 +72,33 @@ func (h *handler) SignUp(w http.ResponseWriter, r *http.Request)  {
 	result := h.db.Create(&usr)
 	if result.Error != nil {
 		http.Error(w, result.Error.Error(), http.StatusBadRequest)
-		return 
+		return
 	}
 
-	token,err := helpers.CreateToken(usr.ID)
+	token, err := helpers.CreateToken(usr.ID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
-		return 
+		return
 	}
 
-	
-	var res rqrstype.SignUpres 
+	var res rqrstype.SignUpres
 	res.Success = true
-	res.Msg = fmt.Sprintf("user with name created successfully %s",usr.Name)
+	res.Msg = fmt.Sprintf("user with name created successfully %s", usr.Name)
 	res.Token = token
 
 	json.NewEncoder(w).Encode(res)
 
 }
 
-
-func(h *handler) Login(w http.ResponseWriter, r *http.Request) {
+func (h *handler) Login(w http.ResponseWriter, r *http.Request) {
 	var body rqrstype.LoginReq
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
-		return 
+		return
 	}
 
-    var usr db.User
-	if result := h.db.Where("email = ?", body.Email).First(&usr);
-	result.Error == gorm.ErrRecordNotFound {
+	var usr db.User
+	if result := h.db.Where("email = ?", body.Email).First(&usr); result.Error == gorm.ErrRecordNotFound {
 		http.Error(w, "user with email not found", http.StatusBadRequest)
 		return
 	}
@@ -106,14 +108,14 @@ func(h *handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token,err := helpers.CreateToken(usr.ID)
+	token, err := helpers.CreateToken(usr.ID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
-		return 
+		return
 	}
 
-	var res rqrstype.LoginRes 
-	res.Msg = fmt.Sprintf("user with name %s logged in successfully ",usr.Name)
+	var res rqrstype.LoginRes
+	res.Msg = fmt.Sprintf("user with name %s logged in successfully ", usr.Name)
 	res.Token = token
 
 	json.NewEncoder(w).Encode(res)
