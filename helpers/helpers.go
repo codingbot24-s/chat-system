@@ -29,6 +29,14 @@ func addConnection(userID uint, conn *websocket.Conn) {
 	defer mu.Unlock()
 }
 
+ 
+func CreateRecvMessage(DBh *gorm.DB,b []byte,sender string,userID uint) {
+	// find user by this id in db and 
+	// create a recv message for this user
+	var user db.User
+	DBh.First(&user, 10)
+}
+
 func writeAll(ty int, msg []byte) {
 	for _, m := range Connection {
 		for _, conn := range m {
