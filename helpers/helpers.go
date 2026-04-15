@@ -49,7 +49,7 @@ func CreateMessage(userID uint, b []byte) *db.Message {
 	return m
 }
 
-// FIND USER IN DB
+// FIND USER will find first user with given id 
 func findUser(userId uint, DBh *gorm.DB) (*db.User, error) {
 	var user db.User
 	if result := DBh.First(&user, userId); result.Error != nil {
@@ -75,11 +75,31 @@ func StoreMessage(b []byte, DBh *gorm.DB, userID uint) error {
 	return nil
 }
 
+func writeAllMessages(userID uint,DBh *gorm.DB, conn *websocket.Conn) error {
+	user,err  := findUser(userID,DBh)
+	if err != nil {
+		return err
+	}
+	var msgs []db.Message
+	if err := DBh.Model(&user).Association("Messages").Find(&msgs);err != nil {
+		return err
+	}
+
+	// write this content back to user
+	for i := 0; i < len(msgs); i++ {
+		if err := conn.WriteMessage(websocket.TextMessage,msgs[i].Content); err != nil {
+			return err
+		}
+	}
+	return nil 
+}
+
 func HandleConnection(userID uint, conn *websocket.Conn, db *gorm.DB) {
 
 	addConnection(userID, conn)
 	for {
 		// we can save this message in db in byte
+		writeAllMessages(userID,db,conn)
 		mty, b, err := conn.ReadMessage()
 		if err != nil {
 			log.Printf("error reading from connection %w", err)
