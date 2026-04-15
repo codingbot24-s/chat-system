@@ -29,21 +29,37 @@ func addConnection(userID uint, conn *websocket.Conn) {
 	defer mu.Unlock()
 }
 
- 
-func CreateRecvMessage(DBh *gorm.DB,b []byte,sender string,userID uint) {
-	// find user by this id in db and 
+// TEST ME 
+func CreateRecvMessage(DBh *gorm.DB, msg []byte, sender string, userID uint) error {
+	// find user by this id in db and
 	// create a recv message for this user
-	var user db.User
-	DBh.First(&user, 10)
+	// receiver, err := findUser(userID, DBh)
+	// if err != nil {
+	// 	return err
+	// }
+	// var recMsg db.RecvMessage
+	// recMsg.Content = msg
+	// recMsg.SendedBy = sender
+	// recMsg.UserId = receiver.ID
+	// if err := DBh.Model(&receiver).Association("RecvMessage").Append(recMsg); err != nil {
+	// 	return err
+	// }
+
+	fmt.Println("started creating a reciver message")
+
+	return nil
 }
 
-func writeAll(ty int, msg []byte) {
+func writeAll(ty int, msg []byte, sender string, db *gorm.DB) {
 	for _, m := range Connection {
-		for _, conn := range m {
+		// we can take user id from here
+		for receiverId, conn := range m {
 			if err := conn.WriteMessage(ty, msg); err != nil {
 				log.Printf("error writing to the client %w", err)
 				return
 			}
+			// for every user id create a recv message
+			CreateRecvMessage(db, msg, sender, receiverId)
 		}
 	}
 }
@@ -57,7 +73,7 @@ func CreateMessage(userID uint, b []byte) *db.Message {
 	return m
 }
 
-// FIND USER will find first user with given id 
+// FIND USER will find first user with given id
 func findUser(userId uint, DBh *gorm.DB) (*db.User, error) {
 	var user db.User
 	if result := DBh.First(&user, userId); result.Error != nil {
@@ -78,43 +94,50 @@ func StoreMessage(b []byte, DBh *gorm.DB, userID uint) error {
 
 	// create a message in this user
 	if err := DBh.Model(user).Association("Messages").Append(&db.Message{Content: msg.Content, UserId: user.ID}); err != nil {
-		return err 
-	}	
+		return err
+	}
 	return nil
 }
 
-func writeAllMessages(userID uint,DBh *gorm.DB, conn *websocket.Conn) error {
-	user,err  := findUser(userID,DBh)
+// writallmessages will write all the messages that this user has sended
+// back to original user
+func writeAllMessages(userID uint, DBh *gorm.DB, conn *websocket.Conn) error {
+	user, err := findUser(userID, DBh)
 	if err != nil {
 		return err
 	}
 	var msgs []db.Message
-	if err := DBh.Model(&user).Association("Messages").Find(&msgs);err != nil {
+	if err := DBh.Model(&user).Association("Messages").Find(&msgs); err != nil {
 		return err
 	}
 
 	// write this content back to user
 	for i := 0; i < len(msgs); i++ {
-		if err := conn.WriteMessage(websocket.TextMessage,msgs[i].Content); err != nil {
+		if err := conn.WriteMessage(websocket.TextMessage, msgs[i].Content); err != nil {
 			return err
 		}
 	}
-	return nil 
+	return nil
 }
 
 func HandleConnection(userID uint, conn *websocket.Conn, db *gorm.DB) {
 
 	addConnection(userID, conn)
+	sender, err := findUser(userID, db)
+	if err != nil {
+		log.Println("cant find the user with id")
+		return
+	}
 	for {
-		// we can save this message in db in byte
-		writeAllMessages(userID,db,conn)
+		writeAllMessages(userID, db, conn)
 		mty, b, err := conn.ReadMessage()
 		if err != nil {
 			log.Printf("error reading from connection %w", err)
 			break
 		}
 		fmt.Printf("recv  message %s\n", string(b))
-		writeAll(mty, b)
+		// usr
+		writeAll(mty, b, sender.Name, db)
 
 		if err := StoreMessage(b, db, userID); err != nil {
 			log.Printf("error storing message: %w", err)
@@ -157,12 +180,9 @@ func CreateToken(id uint) (string, error) {
 	return tokenString, nil
 }
 
-
-
 /*
 	AUTH MIDDLEWARE
 */
-
 
 func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
