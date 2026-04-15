@@ -45,29 +45,34 @@ func (h *handler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 func (h *handler) SignUp(w http.ResponseWriter, r *http.Request)  {
 	var body rqrstype.SignUpBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		return
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return 
 	}
 
 	var usr db.User
 	if result := h.db.Where("name = ?", body.Name).First(&usr); result.
 	Error != gorm.ErrRecordNotFound {
+		http.Error(w, "user already exists", http.StatusBadRequest)
 		return 
 	}
 
 	usr.Name = body.Name
 	usr.Email = body.Email
-	hashedPass, err := helpers.HashPassword(usr.Password)
+	hashedPass, err := helpers.HashPassword(body.Password)
 	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	usr.Password = hashedPass
 	result := h.db.Create(&usr)
 	if result.Error != nil {
+		http.Error(w, result.Error.Error(), http.StatusBadRequest)
 		return 
 	}
 
 	token,err := helpers.CreateToken(usr.ID)
 	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return 
 	}
 
@@ -82,3 +87,34 @@ func (h *handler) SignUp(w http.ResponseWriter, r *http.Request)  {
 }
 
 
+func(h *handler) Login(w http.ResponseWriter, r *http.Request) {
+	var body rqrstype.LoginReq
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return 
+	}
+
+    var usr db.User
+	if result := h.db.Where("email = ?", body.Email).First(&usr);
+	result.Error == gorm.ErrRecordNotFound {
+		http.Error(w, "user with email not found", http.StatusBadRequest)
+		return
+	}
+
+	if !helpers.VerifyPassword(body.Password, usr.Password) {
+		http.Error(w, "password is incorrect", http.StatusBadRequest)
+		return
+	}
+
+	token,err := helpers.CreateToken(usr.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return 
+	}
+
+	var res rqrstype.LoginRes 
+	res.Msg = fmt.Sprintf("user with name %s logged in successfully ",usr.Name)
+	res.Token = token
+
+	json.NewEncoder(w).Encode(res)
+}

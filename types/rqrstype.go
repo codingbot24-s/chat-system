@@ -11,3 +11,15 @@ type SignUpres struct {
 	Msg 	string `json:"message"`
 	Token 	string  `json:"token"`
 }
+
+
+
+type LoginReq struct {
+	Email string `json:"email"`
+	Password string `json:"password"`
+}
+
+type LoginRes struct {
+	Msg string `json:"message"`
+	Token string `json:"token"`
+}

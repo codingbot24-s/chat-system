@@ -19,7 +19,7 @@ func main() {
 	r.HandleFunc("/health",h.Health).Methods("GET");
 	r.HandleFunc("/ws",h.HandleWebSocket).Methods("Get")
 	r.HandleFunc("/signup",h.SignUp).Methods("POST")
-
+	r.HandleFunc("/login",h.Login).Methods("GET")
 
 
 
