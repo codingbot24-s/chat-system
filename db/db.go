@@ -17,6 +17,6 @@ func Init () *gorm.DB {
 		log.Fatalf("error connecting the db %w",err);
 		return nil
 	}
-	conn.AutoMigrate(User{},Message{});
+	conn.AutoMigrate(User{},Message{},RecvMessage{});
 	return conn;
 }

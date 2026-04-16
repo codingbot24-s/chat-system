@@ -29,37 +29,40 @@ func addConnection(userID uint, conn *websocket.Conn) {
 	defer mu.Unlock()
 }
 
-// TEST ME 
-func CreateRecvMessage(DBh *gorm.DB, msg []byte, sender string, userID uint) error {
-	// find user by this id in db and
-	// create a recv message for this user
-	// receiver, err := findUser(userID, DBh)
-	// if err != nil {
-	// 	return err
-	// }
-	// var recMsg db.RecvMessage
-	// recMsg.Content = msg
-	// recMsg.SendedBy = sender
-	// recMsg.UserId = receiver.ID
-	// if err := DBh.Model(&receiver).Association("RecvMessage").Append(recMsg); err != nil {
-	// 	return err
-	// }
+func CreateRecvMessage(sender string,msg []byte,receiverId uint) *db.RecvMessage {
+	var rcvMsg db.RecvMessage
+	rcvMsg.SendedBy = sender
+	rcvMsg.Content = msg
+	rcvMsg.UserId = receiverId
 
-	fmt.Println("started creating a reciver message")
-
-	return nil
+	return &rcvMsg
 }
 
-func writeAll(ty int, msg []byte, sender string, db *gorm.DB) {
+
+func StoreRecvMessage(db *gorm.DB, msgToStore *db.RecvMessage) error {	
+	receiver,err  := findUser(msgToStore.UserId,db)
+	if err != nil {
+		return err 
+	}
+
+	if err := db.Model(receiver).Association("RecvMessages").Append(msgToStore); err != nil {
+		return err
+
+	}
+
+	return nil 
+}
+
+
+func writeAll(ty int, msg []byte, senderName string,DBh *gorm.DB) {
 	for _, m := range Connection {
-		// we can take user id from here
 		for receiverId, conn := range m {
 			if err := conn.WriteMessage(ty, msg); err != nil {
 				log.Printf("error writing to the client %w", err)
 				return
 			}
-			// for every user id create a recv message
-			CreateRecvMessage(db, msg, sender, receiverId)
+			rcvMsg := CreateRecvMessage(senderName,msg,receiverId)
+			StoreRecvMessage(DBh,rcvMsg)
 		}
 	}
 }
@@ -85,6 +88,7 @@ func findUser(userId uint, DBh *gorm.DB) (*db.User, error) {
 
 // STORE Message In DB
 func StoreMessage(b []byte, DBh *gorm.DB, userID uint) error {
+	// create a sended messages
 	msg := CreateMessage(userID, b)
 	// find the user with this id
 	user, err := findUser(userID, DBh)
@@ -92,56 +96,60 @@ func StoreMessage(b []byte, DBh *gorm.DB, userID uint) error {
 		return err
 	}
 
-	// create a message in this user
+	// create a sended message in this user
 	if err := DBh.Model(user).Association("Messages").Append(&db.Message{Content: msg.Content, UserId: user.ID}); err != nil {
 		return err
 	}
+
+
 	return nil
 }
 
-// writallmessages will write all the messages that this user has sended
-// back to original user
+// writeAllMessages will write all the messages that this user has received
+// back to the connected websocket client.
 func writeAllMessages(userID uint, DBh *gorm.DB, conn *websocket.Conn) error {
 	user, err := findUser(userID, DBh)
 	if err != nil {
 		return err
 	}
-	var msgs []db.Message
-	if err := DBh.Model(&user).Association("Messages").Find(&msgs); err != nil {
+	var msgs []db.RecvMessage
+	if err := DBh.Model(&user).Association("RecvMessages").Find(&msgs); err != nil {
 		return err
 	}
 
-	// write this content back to user
 	for i := 0; i < len(msgs); i++ {
 		if err := conn.WriteMessage(websocket.TextMessage, msgs[i].Content); err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
+
 
 func HandleConnection(userID uint, conn *websocket.Conn, db *gorm.DB) {
 
 	addConnection(userID, conn)
-	sender, err := findUser(userID, db)
+	sender,err := findUser(userID,db)	
 	if err != nil {
-		log.Println("cant find the user with id")
+		log.Println("cant get the sender")
 		return
 	}
 	for {
-		writeAllMessages(userID, db, conn)
 		mty, b, err := conn.ReadMessage()
 		if err != nil {
 			log.Printf("error reading from connection %w", err)
 			break
 		}
 		fmt.Printf("recv  message %s\n", string(b))
-		// usr
-		writeAll(mty, b, sender.Name, db)
+		writeAll(mty,b,sender.Name,db)
+		
 
+		// Storing the messages that this user is sending 
 		if err := StoreMessage(b, db, userID); err != nil {
 			log.Printf("error storing message: %w", err)
 		}
+		
 	}
 
 }
