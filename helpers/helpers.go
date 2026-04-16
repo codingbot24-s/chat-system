@@ -35,7 +35,7 @@ func removeConnection(userID uint) {
 	mu.Unlock()
 }
 
-func CreateRecvMessage(sender string,msg []byte,receiverId uint) *db.RecvMessage {
+func CreateRecvMessage(sender string, msg []byte, receiverId uint) *db.RecvMessage {
 	var rcvMsg db.RecvMessage
 	rcvMsg.SendedBy = sender
 	rcvMsg.Content = msg
@@ -44,11 +44,10 @@ func CreateRecvMessage(sender string,msg []byte,receiverId uint) *db.RecvMessage
 	return &rcvMsg
 }
 
-
-func StoreRecvMessage(db *gorm.DB, msgToStore *db.RecvMessage) error {	
-	receiver,err  := findUser(msgToStore.UserId,db)
+func StoreRecvMessage(db *gorm.DB, msgToStore *db.RecvMessage) error {
+	receiver, err := findUser(msgToStore.UserId, db)
 	if err != nil {
-		return err 
+		return err
 	}
 
 	if err := db.Model(receiver).Association("RecvMessages").Append(msgToStore); err != nil {
@@ -56,19 +55,18 @@ func StoreRecvMessage(db *gorm.DB, msgToStore *db.RecvMessage) error {
 
 	}
 
-	return nil 
+	return nil
 }
 
-
-func writeAll(ty int, msg []byte, senderName string,DBh *gorm.DB) {
+func writeAll(ty int, msg []byte, senderName string, DBh *gorm.DB) {
 	mu.Lock()
 	for receiverId, conn := range Connection {
 		if err := conn.WriteMessage(ty, msg); err != nil {
 			log.Printf("error writing to the client %w", err)
 			delete(Connection, receiverId)
 		}
-		rcvMsg := CreateRecvMessage(senderName,msg,receiverId)
-		StoreRecvMessage(DBh,rcvMsg)
+		rcvMsg := CreateRecvMessage(senderName, msg, receiverId)
+		StoreRecvMessage(DBh, rcvMsg)
 	}
 	defer mu.Unlock()
 }
@@ -107,15 +105,14 @@ func StoreMessage(b []byte, DBh *gorm.DB, userID uint) error {
 		return err
 	}
 
-
 	return nil
 }
 
 // send all the messages back when user connected
-func SendBack(userId uint,DBh *gorm.DB, conn *websocket.Conn ) error {	
+func SendBack(userId uint, DBh *gorm.DB, conn *websocket.Conn) error {
 	var allMessages []struct {
-		Content  []byte
-		Sender   string
+		Content   []byte
+		Sender    string
 		CreatedAt time.Time
 	}
 
@@ -135,20 +132,18 @@ func SendBack(userId uint,DBh *gorm.DB, conn *websocket.Conn ) error {
 		}
 	}
 
-	return nil 
+	return nil
 }
-
-
 
 func HandleConnection(userID uint, conn *websocket.Conn, db *gorm.DB) {
 
 	addConnection(userID, conn)
-	sender,err := findUser(userID,db)	
+	sender, err := findUser(userID, db)
 	if err != nil {
 		log.Println("cant get the sender")
 		return
 	}
-	SendBack(userID,db,conn)
+	SendBack(userID, db, conn)
 	for {
 		mty, b, err := conn.ReadMessage()
 		if err != nil {
@@ -156,19 +151,17 @@ func HandleConnection(userID uint, conn *websocket.Conn, db *gorm.DB) {
 			break
 		}
 		fmt.Printf("recv  message %s\n", string(b))
-		writeAll(mty,b,sender.Name,db)
-		
+		writeAll(mty, b, sender.Name, db)
 
-		// Storing the messages that this user is sending 
+		// Storing the messages that this user is sending
 		if err := StoreMessage(b, db, userID); err != nil {
 			log.Printf("error storing message: %w", err)
 		}
-		
+
 	}
 
 	removeConnection(userID)
 }
-
 
 /*
 	Password Hashing
