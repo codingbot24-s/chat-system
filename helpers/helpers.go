@@ -15,18 +15,24 @@ import (
 	"gorm.io/gorm"
 )
 
-type Clients []map[uint]*websocket.Conn
+type Clients map[uint]*websocket.Conn
 
 var (
-	Connection Clients
+	Connection = make(Clients)
 	mu         sync.Mutex
 )
 
 func addConnection(userID uint, conn *websocket.Conn) {
 
 	mu.Lock()
-	Connection = append(Connection, map[uint]*websocket.Conn{userID: conn})
-	defer mu.Unlock()
+	Connection[userID] = conn
+	mu.Unlock()
+}
+
+func removeConnection(userID uint) {
+	mu.Lock()
+	delete(Connection, userID)
+	mu.Unlock()
 }
 
 func CreateRecvMessage(sender string,msg []byte,receiverId uint) *db.RecvMessage {
@@ -55,16 +61,16 @@ func StoreRecvMessage(db *gorm.DB, msgToStore *db.RecvMessage) error {
 
 
 func writeAll(ty int, msg []byte, senderName string,DBh *gorm.DB) {
-	for _, m := range Connection {
-		for receiverId, conn := range m {
-			if err := conn.WriteMessage(ty, msg); err != nil {
-				log.Printf("error writing to the client %w", err)
-				return
-			}
-			rcvMsg := CreateRecvMessage(senderName,msg,receiverId)
-			StoreRecvMessage(DBh,rcvMsg)
+	mu.Lock()
+	for receiverId, conn := range Connection {
+		if err := conn.WriteMessage(ty, msg); err != nil {
+			log.Printf("error writing to the client %w", err)
+			delete(Connection, receiverId)
 		}
+		rcvMsg := CreateRecvMessage(senderName,msg,receiverId)
+		StoreRecvMessage(DBh,rcvMsg)
 	}
+	defer mu.Unlock()
 }
 
 func CreateMessage(userID uint, b []byte) *db.Message {
@@ -105,26 +111,33 @@ func StoreMessage(b []byte, DBh *gorm.DB, userID uint) error {
 	return nil
 }
 
-// writeAllMessages will write all the messages that this user has received
-// back to the connected websocket client.
-func writeAllMessages(userID uint, DBh *gorm.DB, conn *websocket.Conn) error {
-	user, err := findUser(userID, DBh)
-	if err != nil {
-		return err
+// send all the messages back when user connected
+func SendBack(userId uint,DBh *gorm.DB, conn *websocket.Conn ) error {	
+	var allMessages []struct {
+		Content  []byte
+		Sender   string
+		CreatedAt time.Time
 	}
-	var msgs []db.RecvMessage
-	if err := DBh.Model(&user).Association("RecvMessages").Find(&msgs); err != nil {
+
+	// Fetch all sent messages with sender info
+	if err := DBh.Table("messages").Select("messages.content, users.name as sender, messages.created_at").
+		Joins("JOIN users ON users.id = messages.user_id").
+		Order("messages.created_at ASC").
+		Find(&allMessages).Error; err != nil {
 		return err
 	}
 
-	for i := 0; i < len(msgs); i++ {
-		if err := conn.WriteMessage(websocket.TextMessage, msgs[i].Content); err != nil {
+	// Send all messages in chronological order
+	for _, msg := range allMessages {
+		messageWithSender := fmt.Sprintf("[%s] %s: %s", msg.CreatedAt.Format("15:04:05"), msg.Sender, string(msg.Content))
+		if err := conn.WriteMessage(websocket.TextMessage, []byte(messageWithSender)); err != nil {
 			return err
 		}
 	}
 
-	return nil
+	return nil 
 }
+
 
 
 func HandleConnection(userID uint, conn *websocket.Conn, db *gorm.DB) {
@@ -135,6 +148,7 @@ func HandleConnection(userID uint, conn *websocket.Conn, db *gorm.DB) {
 		log.Println("cant get the sender")
 		return
 	}
+	SendBack(userID,db,conn)
 	for {
 		mty, b, err := conn.ReadMessage()
 		if err != nil {
@@ -152,7 +166,9 @@ func HandleConnection(userID uint, conn *websocket.Conn, db *gorm.DB) {
 		
 	}
 
+	removeConnection(userID)
 }
+
 
 /*
 	Password Hashing
