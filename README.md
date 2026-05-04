@@ -1,1 +1,1 @@
-websocket chat system with postgres and auth 
+websocket chat system with postgres
